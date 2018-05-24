@@ -48,7 +48,7 @@ import java.util.regex.Pattern;
 public class FlowManagerImpl extends ResourceManager implements FlowManager {
     private static final String HUB_NS = "http://marklogic.com/data-hub";
     private static final String NAME = "ml:flow";
-t
+
     private DatabaseClient stagingClient;
     private DatabaseClient finalClient;
     private DatabaseClient jobClient;
