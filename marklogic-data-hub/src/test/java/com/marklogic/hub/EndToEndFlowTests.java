@@ -152,12 +152,15 @@ public class EndToEndFlowTests extends HubTestBase {
         enableTracing();
         enableDebugging();
 
+        scaffolding = Scaffolding.create(projectDir.toString(), finalClient);
+        scaffolding.createEntity(ENTITY);
+        flowManager = FlowManager.create(getHubConfig());
+        stagingDataMovementManager = stagingClient.newDataMovementManager();
+        finalDataMovementManager = finalClient.newDataMovementManager();
         // the following block only needs to be run once, but there's lots of non-static methods
         // in it, hence a boolean static flag.
         if (!isSetup) {
             isSetup = true;
-            scaffolding = Scaffolding.create(projectDir.toString(), finalClient);
-            scaffolding.createEntity(ENTITY);
 
             scaffoldFlows("scaffolded");
 
@@ -194,7 +197,6 @@ public class EndToEndFlowTests extends HubTestBase {
                 createLegacyFlow("legacy", codeFormat, dataFormat, flowType, useEs);
             });
 
-            flowManager = FlowManager.create(getHubConfig());
             List<String> legacyFlows = flowManager.getLegacyFlows();
             assertEquals(8, legacyFlows.size(), String.join("\n", legacyFlows));
             assertEquals(8, flowManager.updateLegacyFlows("2.0.0").size()); // don't change this value
@@ -228,9 +230,6 @@ public class EndToEndFlowTests extends HubTestBase {
             installUserModules(getHubConfig(), true);
 
         }
-        flowManager = FlowManager.create(getHubConfig());
-        stagingDataMovementManager = stagingClient.newDataMovementManager();
-        finalDataMovementManager = finalClient.newDataMovementManager();
     }
 
 
