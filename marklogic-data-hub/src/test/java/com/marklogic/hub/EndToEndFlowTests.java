@@ -116,10 +116,10 @@ public class EndToEndFlowTests extends HubTestBase {
     @BeforeAll
     public static void setup() {
         XMLUnit.setIgnoreWhitespace(true);
-        //new Installer().installHubOnce();
+        new Installer().installHubOnce();
     }
 
-    //@AfterAll
+    @AfterAll
     public static void teardown() {
         new Installer().uninstallHub();
     }
