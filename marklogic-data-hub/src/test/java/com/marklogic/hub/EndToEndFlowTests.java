@@ -196,7 +196,7 @@ public class EndToEndFlowTests extends HubTestBase {
         return ev.validateAll();
     }
 
-    //@TestFactory allpass
+    @TestFactory
     public List<DynamicTest> generateLegacyTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
@@ -294,7 +294,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    //@TestFactory all pass
+    @TestFactory
     public List<DynamicTest> generate1xLegacyTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
@@ -406,7 +406,7 @@ public class EndToEndFlowTests extends HubTestBase {
         return tests;
     }
 
-    //@TestFactory
+    @TestFactory
     public List<DynamicTest> generateScaffoldedTests() {
         allCombos(((codeFormat, dataFormat, flowType, useEs) -> {
             scaffoldFlow("scaffolded", codeFormat, dataFormat, flowType, useEs);
@@ -505,7 +505,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    //@TestFactory
+    @TestFactory
     public List<DynamicTest> generateWithErrorTests() {
         createFlows("with-error", (codeFormat, dataFormat, flowType, srcDir, flowDir, useES) -> {
             copyFile(srcDir + "main-" + flowType.toString() + "." + codeFormat.toString(), flowDir.resolve("main." + codeFormat.toString()));
@@ -578,7 +578,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    //@TestFactory  all pass
+    @TestFactory
     public List<DynamicTest> generateValidationTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
@@ -638,7 +638,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    //@TestFactory  (all pass)
+    @TestFactory
     public List<DynamicTest> generateValidationHeadersErrorsTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
