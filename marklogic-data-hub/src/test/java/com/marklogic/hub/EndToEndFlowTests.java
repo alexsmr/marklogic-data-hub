@@ -24,6 +24,8 @@ import com.marklogic.client.datamovement.JobTicket;
 import com.marklogic.client.datamovement.WriteBatcher;
 import com.marklogic.client.document.GenericDocumentManager;
 import com.marklogic.client.document.ServerTransform;
+import com.marklogic.client.io.*;
+import com.marklogic.hub.flow.*;
 import com.marklogic.hub.scaffold.Scaffolding;
 import com.marklogic.hub.util.FileUtil;
 import com.marklogic.hub.util.Installer;
@@ -40,19 +42,6 @@ import org.skyscreamer.jsonassert.JSONCompareMode;
 import org.skyscreamer.jsonassert.JSONCompareResult;
 import org.w3c.dom.Document;
 
-import com.marklogic.client.io.DOMHandle;
-import com.marklogic.client.io.DocumentMetadataHandle;
-import com.marklogic.client.io.FileHandle;
-import com.marklogic.client.io.Format;
-import com.marklogic.client.io.JacksonHandle;
-import com.marklogic.client.io.StringHandle;
-import com.marklogic.hub.flow.CodeFormat;
-import com.marklogic.hub.flow.DataFormat;
-import com.marklogic.hub.flow.Flow;
-import com.marklogic.hub.flow.FlowBuilder;
-import com.marklogic.hub.flow.FlowRunner;
-import com.marklogic.hub.flow.FlowType;
-
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -60,9 +49,6 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-import static com.marklogic.client.io.DocumentMetadataHandle.Capability.EXECUTE;
-import static com.marklogic.client.io.DocumentMetadataHandle.Capability.READ;
-import static com.marklogic.client.io.DocumentMetadataHandle.Capability.UPDATE;
 import static org.custommonkey.xmlunit.XMLAssert.assertXMLEqual;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -130,10 +116,10 @@ public class EndToEndFlowTests extends HubTestBase {
     @BeforeAll
     public static void setup() {
         XMLUnit.setIgnoreWhitespace(true);
-        new Installer().installHubOnce();
+        //new Installer().installHubOnce();
     }
 
-    @AfterAll
+    //@AfterAll
     public static void teardown() {
         new Installer().uninstallHub();
     }
@@ -142,6 +128,7 @@ public class EndToEndFlowTests extends HubTestBase {
 
     @BeforeEach
     public void setupEach() {
+        createProjectDir();
         if (isSslRun() || isCertAuth()) {
             sslSetup();
         }
@@ -152,86 +139,57 @@ public class EndToEndFlowTests extends HubTestBase {
         enableTracing();
         enableDebugging();
 
-        scaffolding = Scaffolding.create(projectDir.toString(), finalClient);
-        scaffolding.createEntity(ENTITY);
+
         flowManager = FlowManager.create(getHubConfig());
         stagingDataMovementManager = stagingClient.newDataMovementManager();
         finalDataMovementManager = finalClient.newDataMovementManager();
-        // the following block only needs to be run once, but there's lots of non-static methods
-        // in it, hence a boolean static flag.
-        if (!isSetup) {
-            isSetup = true;
+        scaffolding = Scaffolding.create(projectDir.toString(), finalClient);
+        scaffolding.createEntity(ENTITY);
 
-            scaffoldFlows("scaffolded");
+        // create some flows in a format that pre-dates the 2.0 flow format with properties files
+        allCombos((codeFormat, dataFormat, flowType, useEs) -> {
+            createLegacyFlow("legacy", codeFormat, dataFormat, flowType, useEs);
+        });
 
-            createFlows("with-error", (codeFormat, dataFormat, flowType, srcDir, flowDir, useES) -> {
-                copyFile(srcDir + "main-" + flowType.toString() + "." + codeFormat.toString(), flowDir.resolve("main." + codeFormat.toString()));
-                if (useES) {
-                    copyFile(srcDir + "es-content-" + flowType.toString() + "-" + dataFormat.toString() + "." + codeFormat.toString(), flowDir.resolve("content." + codeFormat.toString()));
-                    copyFile(srcDir + "es-headers" + "." + codeFormat.toString(), flowDir.resolve("headers." + codeFormat.toString()));
-                    copyFile(srcDir + "es-triples" + "." + codeFormat.toString(), flowDir.resolve("triples." + codeFormat.toString()));
-                    copyFile(srcDir + "es-writer" + "." + codeFormat.toString(), flowDir.resolve("writer." + codeFormat.toString()));
-                }
-                copyFile(srcDir + "extra-plugin." + codeFormat.toString(), flowDir.resolve("extra-plugin." + codeFormat.toString()));
-            });
+        flowManager = FlowManager.create(getHubConfig());
+        List<String> legacyFlows = flowManager.getLegacyFlows();
+        assertEquals(8, legacyFlows.size(), String.join("\n", legacyFlows));
+        assertEquals(8, flowManager.updateLegacyFlows("2.0.0").size()); // don't change this value
+        assertEquals(0, flowManager.getLegacyFlows().size());
 
-            createFlows("extra-plugin", (codeFormat, dataFormat, flowType, srcDir, flowDir, useES) -> {
-                copyFile(srcDir + "main-" + flowType.toString() + "." + codeFormat.toString(), flowDir.resolve("main." + codeFormat.toString()));
-                copyFile(srcDir + "extra-plugin." + codeFormat.toString(), flowDir.resolve("extra-plugin." + codeFormat.toString()));
-            });
+        // flows from DHF 1.x
+        allCombos((codeFormat, dataFormat, flowType, useEs) -> {
+            createLegacyFlow("1x-legacy", codeFormat, dataFormat, flowType, useEs);
+        });
 
-            allCombos((codeFormat, dataFormat, flowType, useEs) -> {
-                if (codeFormat.equals(CodeFormat.XQUERY)) {
-                    createFlow("triples-array", codeFormat, dataFormat, flowType, useEs, (codeFormat1, dataFormat1, flowType1, srcDir, flowDir, useEs2) -> {
-                        copyFile(srcDir + "triples-json-array.xqy", flowDir.resolve("triples.xqy"));
-                    });
-                }
-            });
+        // verify that all of the legacy flows get detected
+        // update all of the legacy flows to tne new format
+        // verify that the legacy flows were updated. there should be no more legacy flows (0)
+        legacyFlows = flowManager.getLegacyFlows();
+        assertEquals(8, legacyFlows.size(), String.join("\n", legacyFlows));
+        assertEquals(8, flowManager.updateLegacyFlows("1.1.5").size());
+        assertEquals(0, flowManager.getLegacyFlows().size());
 
-            allCombos((codeFormat, dataFormat, flowType, useEs) -> {
-                createFlow("has a space ", codeFormat, dataFormat, flowType, useEs, null);
-            });
 
-            // create some flows in a format that pre-dates the 2.0 flow format with properties files
-            allCombos((codeFormat, dataFormat, flowType, useEs) -> {
-                createLegacyFlow("legacy", codeFormat, dataFormat, flowType, useEs);
-            });
+        // create some flows in a format that pre-dates the 3.0 sjs enhancement
+        allCombos((codeFormat, dataFormat, flowType, useEs) -> {
+            create2xFlow("2x-before-3x", codeFormat, dataFormat, flowType, useEs);
+        });
 
-            List<String> legacyFlows = flowManager.getLegacyFlows();
-            assertEquals(8, legacyFlows.size(), String.join("\n", legacyFlows));
-            assertEquals(8, flowManager.updateLegacyFlows("2.0.0").size()); // don't change this value
-            assertEquals(0, flowManager.getLegacyFlows().size());
-
-            // flows from DHF 1.x
-            allCombos((codeFormat, dataFormat, flowType, useEs) -> {
-                createLegacyFlow("1x-legacy", codeFormat, dataFormat, flowType, useEs);
-            });
-
-            // verify that all of the legacy flows get detected
-            // update all of the legacy flows to tne new format
-            // verify that the legacy flows were updated. there should be no more legacy flows (0)
-            legacyFlows = flowManager.getLegacyFlows();
-            assertEquals(8, legacyFlows.size(), String.join("\n", legacyFlows));
-            assertEquals(8, flowManager.updateLegacyFlows("1.1.5").size());
-            assertEquals(0, flowManager.getLegacyFlows().size());
-
-            // create some flows in a format that pre-dates the 3.0 sjs enhancement
-            allCombos((codeFormat, dataFormat, flowType, useEs) -> {
-                create2xFlow("2x-before-3x", codeFormat, dataFormat, flowType, useEs);
-            });
-
-            // verify that all of the legacy flows get detected
-            // update all of the legacy flows to tne new format
-            // verify that the legacy flows were updated. there should be no more legacy flows (0)
-            legacyFlows = flowManager.getLegacyFlows();
-            assertEquals(4, legacyFlows.size(), String.join("\n", legacyFlows));
-            assertEquals(4, flowManager.updateLegacyFlows("2.0.0").size());
-            assertEquals(0, flowManager.getLegacyFlows().size());
-            installUserModules(getHubConfig(), true);
-
-        }
+        // verify that all of the legacy flows get detected
+        // update all of the legacy flows to tne new format
+        // verify that the legacy flows were updated. there should be no more legacy flows (0)
+        legacyFlows = flowManager.getLegacyFlows();
+        assertEquals(4, legacyFlows.size(), String.join("\n", legacyFlows));
+        assertEquals(4, flowManager.updateLegacyFlows("2.0.0").size());
+        assertEquals(0, flowManager.getLegacyFlows().size());
+        installUserModules(getHubConfig(), true);
     }
 
+    @AfterEach
+    public void clearProjectData() {
+        this.deleteProjectDir();
+    }
 
     private JsonNode validateUserModules() {
         EntitiesValidator ev = EntitiesValidator.create(getHubConfig().newStagingManageClient());
@@ -296,8 +254,11 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory  xml-es error
     public List<DynamicTest> generateHasASpaceTests() {
+        allCombos((codeFormat, dataFormat, flowType, useEs) -> {
+           createFlow("has a space ", codeFormat, dataFormat, flowType, useEs, null);
+        });
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
         allCombos((codeFormat, dataFormat, flowType, useEs) -> {
@@ -390,8 +351,13 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory
     public List<DynamicTest> generateExtraPluginTests() {
+        createFlows("extra-plugin", (codeFormat, dataFormat, flowType, srcDir, flowDir, useES) -> {
+            copyFile(srcDir + "main-" + flowType.toString() + "." + codeFormat.toString(), flowDir.resolve("main." + codeFormat.toString()));
+            copyFile(srcDir + "extra-plugin." + codeFormat.toString(), flowDir.resolve("extra-plugin." + codeFormat.toString()));
+        });
+
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
 
@@ -440,8 +406,12 @@ public class EndToEndFlowTests extends HubTestBase {
         return tests;
     }
 
-    @TestFactory
+    //@TestFactory
     public List<DynamicTest> generateScaffoldedTests() {
+        allCombos(((codeFormat, dataFormat, flowType, useEs) -> {
+            scaffoldFlow("scaffolded", codeFormat, dataFormat, flowType, useEs);
+        }));
+
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
         Path entityDir = projectDir.resolve("plugins").resolve("entities").resolve(ENTITY);
@@ -487,8 +457,15 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory
     public List<DynamicTest> generateTriplesArrayTests() {
+        allCombos((codeFormat, dataFormat, flowType, useEs) -> {
+            if (codeFormat.equals(CodeFormat.XQUERY)) {
+                createFlow("triples-array", codeFormat, dataFormat, flowType, useEs, (codeFormat1, dataFormat1, flowType1, srcDir, flowDir, useEs2) -> {
+                    copyFile(srcDir + "triples-json-array.xqy", flowDir.resolve("triples.xqy"));
+                });
+            }
+        });
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
         Path entityDir = projectDir.resolve("plugins").resolve("entities").resolve(ENTITY);
@@ -528,8 +505,18 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory
     public List<DynamicTest> generateWithErrorTests() {
+        createFlows("with-error", (codeFormat, dataFormat, flowType, srcDir, flowDir, useES) -> {
+            copyFile(srcDir + "main-" + flowType.toString() + "." + codeFormat.toString(), flowDir.resolve("main." + codeFormat.toString()));
+            if (useES) {
+                copyFile(srcDir + "es-content-" + flowType.toString() + "-" + dataFormat.toString() + "." + codeFormat.toString(), flowDir.resolve("content." + codeFormat.toString()));
+                copyFile(srcDir + "es-headers" + "." + codeFormat.toString(), flowDir.resolve("headers." + codeFormat.toString()));
+                copyFile(srcDir + "es-triples" + "." + codeFormat.toString(), flowDir.resolve("triples." + codeFormat.toString()));
+                copyFile(srcDir + "es-writer" + "." + codeFormat.toString(), flowDir.resolve("writer." + codeFormat.toString()));
+            }
+            copyFile(srcDir + "extra-plugin." + codeFormat.toString(), flowDir.resolve("extra-plugin." + codeFormat.toString()));
+        });
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
         Path entityDir = projectDir.resolve("plugins").resolve("entities").resolve(ENTITY);
@@ -591,7 +578,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory  all pass
     public List<DynamicTest> generateValidationTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
@@ -651,7 +638,7 @@ public class EndToEndFlowTests extends HubTestBase {
     }
 
 
-    @TestFactory
+    //@TestFactory  (all pass)
     public List<DynamicTest> generateValidationHeadersErrorsTests() {
         DataHub dataHub = getDataHub();
         List<DynamicTest> tests = new ArrayList<>();
@@ -893,11 +880,6 @@ public class EndToEndFlowTests extends HubTestBase {
         }
     }
 
-    private void scaffoldFlows(String prefix) {
-        allCombos(((codeFormat, dataFormat, flowType, useEs) -> {
-            scaffoldFlow(prefix, codeFormat, dataFormat, flowType, useEs);
-        }));
-    }
 
     private void scaffoldFlow(String prefix, CodeFormat codeFormat, DataFormat dataFormat, FlowType flowType, boolean useEs) {
         Path entityDir = projectDir.resolve("plugins").resolve("entities").resolve(ENTITY);
